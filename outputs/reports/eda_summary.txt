@@ -1,0 +1,20 @@
+AUDIBLE INSIGHTS - EDA FINAL SUMMARY
+
+Total Records: 6,063
+Unique Books: 6,053
+Unique Authors: 3,876
+Average Rating: 4.46
+Median Rating: 4.50
+Average Reviews: 843.68
+Median Reviews: 190.00
+Average Price: 925.80
+Median Price: 683.00
+Valid Descriptions: 2,423
+Valid Genres: 2,059
+Valid Listening Times: 2,096
+Hidden Gems: 458
+
+Publication Year:
+Not available in source datasets.
+
+EDA completed successfully.

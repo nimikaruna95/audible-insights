@@ -1,0 +1,10 @@
+Category,Metric,Score
+Content Similarity,Average Similarity,0.3463179059643076
+Content Similarity,Maximum Similarity,0.4954108768117152
+Clustering,Silhouette Score,0.16488368975024217
+Recommendation Proxy,Precision@5,0.792
+Recommendation Proxy,Recall@5,0.6616965088959854
+Recommendation Proxy,F1@5,0.6076370752400114
+Coverage,Recommendation Coverage,0.07784924954642916
+Diversity,Average Recommendation Diversity,0.7660933158480538
+Popularity,Popularity Bias Ratio,1.0148693291466326

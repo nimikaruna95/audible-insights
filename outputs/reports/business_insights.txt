@@ -1,0 +1,13 @@
+1. The average book rating is 4.46.
+2. The most common identified genre is 'Personal Success' with 200 book records.
+ The most reviewed book is 'The Girl on the Train' with 70,122 reviews.
+4. 458 books meet the hidden-gem criteria of rating >= 4.5 and low review count.
+5. 39.96% of books have usable descriptions for NLP processing.
+6. 33.96% of books have genre metadata.
+7. 34.57% of books have listening-time data.
+ Publication-year trends cannot be analyzed because publication year is not present in the datasets.
+ Review count is highly skewed, so Log Reviews is useful as a recommendation feature.
+ Genre, author and description features can support content-based recommendations.
+ TF-IDF with cosine similarity can be used to compare book content.
+ Clustering can group books with similar content and genre features.
+ A hybrid recommendation system can combine content similarity, genre similarity and popularity.
