@@ -1,11 +1,15 @@
+# requirements.txt
 pandas
 numpy
 matplotlib
 seaborn
 scikit-learn
-streamlit
-joblib
 scikit-surprise
+nltk
+streamlit
 boto3
 plotly
+scipy
+awscli
+joblib
 gunicorn
