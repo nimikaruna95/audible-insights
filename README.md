@@ -1,6 +1,5 @@
 # Audible Insights: Intelligent Book Recommendations
 
-**Project Code:** `MLNLP-AR-001`
 **Domain:** Recommendation Systems
 **Technologies:** Python | Data Cleaning | EDA | Machine Learning | NLP | Streamlit | AWS
 
