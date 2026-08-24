@@ -1,9 +1,12 @@
+# clustering.py
 import os
+import pickle
 import warnings
 import joblib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD
 from sklearn.metrics import silhouette_score
@@ -11,7 +14,7 @@ from sklearn.metrics import silhouette_score
 warnings.filterwarnings("ignore")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+PROCESSED_DIR = os.path.join(BASE_DIR, "processed_data")
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 REPORT_DIR = os.path.join(BASE_DIR, "outputs", "reports")
 FIGURE_DIR = os.path.join(BASE_DIR, "outputs", "figures")
@@ -19,242 +22,165 @@ FIGURE_DIR = os.path.join(BASE_DIR, "outputs", "figures")
 for folder in [MODEL_DIR, REPORT_DIR, FIGURE_DIR]:
     os.makedirs(folder, exist_ok=True)
 
-DATA_PATH = os.path.join(DATA_DIR, "engineered_books.csv")
-TFIDF_MATRIX_PATH = os.path.join(MODEL_DIR, "tfidf_matrix.pkl")
-OUTPUT_PATH = os.path.join(DATA_DIR, "clustered_books.csv")
-KMEANS_PATH = os.path.join(MODEL_DIR, "kmeans_model.pkl")
-CLUSTER_INFO_PATH = os.path.join(REPORT_DIR, "cluster_report.csv")
-ELBOW_PATH = os.path.join(FIGURE_DIR, "elbow_method.png")
-SILHOUETTE_PATH = os.path.join(FIGURE_DIR, "silhouette_scores.png")
-CLUSTER_VISUALIZATION_PATH = os.path.join(FIGURE_DIR, "cluster_visualization.png")
+DATA_PATH = os.path.join(PROCESSED_DIR, "engineered_books.csv")
+TFIDF_PATH = os.path.join(MODEL_DIR, "tfidf_matrix.pkl")
 
+OUTPUT_PATH = os.path.join(PROCESSED_DIR, "clustered_books.csv")
+KMEANS_PATH = os.path.join(MODEL_DIR, "kmeans_model.pkl")
+SVD_PATH = os.path.join(MODEL_DIR, "svd_model.pkl")
+CONFIG_PATH = os.path.join(MODEL_DIR, "clustering_config.pkl")
 
 def load_data():
-    print("AUDIBLE INSIGHTS - CLUSTERING PIPELINE")
     if not os.path.exists(DATA_PATH):
-        raise FileNotFoundError(
-            f"\nDataset not found:\n{DATA_PATH}\n\n"
-            "Run feature_engineering.py first."
-        )
-    df = pd.read_csv(DATA_PATH)
-    print("Dataset Shape:", df.shape)
-    return df
+        raise FileNotFoundError(f"Dataset not found.")
+    
+    return pd.read_csv(DATA_PATH)
 
+def load_tfidf():
+    if not os.path.exists(TFIDF_PATH):
+        raise FileNotFoundError(f"TF-IDF matrix not found")
+    
+    with open(TFIDF_PATH, "rb") as file:
+        return pickle.load(file)
 
-def load_tfidf_matrix():
-    print("\nLoading TF-IDF matrix...")
-    if not os.path.exists(TFIDF_MATRIX_PATH):
-        raise FileNotFoundError(
-            f"\nTF-IDF matrix not found:\n{TFIDF_MATRIX_PATH}\n\n"
-            "Run nlp.py first."
-        )
+# Reduce sparse TF-IDF dimensions before K-Means
+def reduce_dimensions(X, components=100):
+    components = min(components, X.shape[1] - 1)
 
-    import pickle
-    with open(TFIDF_MATRIX_PATH, "rb") as file:
-        tfidf_matrix = pickle.load(file)
+    svd = TruncatedSVD(n_components=components,random_state=42)
+    reduced = svd.fit_transform(X)
 
-    print("TF-IDF Matrix Shape:", tfidf_matrix.shape)
-    return tfidf_matrix
+    print("Original dimensions:", X.shape[1])
+    print("Reduced dimensions:", reduced.shape[1])
+    print("Explained variance:",round(svd.explained_variance_ratio_.sum(), 4))
 
+    joblib.dump(svd, SVD_PATH)
+    return reduced, svd
 
+# Compare different K values
 def evaluate_clusters(X, min_k=2, max_k=10):
-    max_k = min(max_k, X.shape[0] - 1)
-    if max_k < min_k:
-        raise ValueError("Not enough records for clustering.")
+    max_k = min(max_k, len(X) - 1)
+    results = []
 
-    cluster_values = range(min_k, max_k + 1)
-    wcss, silhouettes = [], []
+    for k in range(min_k, max_k + 1):
+        model = KMeans(n_clusters=k,
+            random_state=42,
+            n_init=10,
+            max_iter=300)
 
-    for k in cluster_values:
-        print(f"Testing K = {k}")
-        model = KMeans(n_clusters=k, random_state=42, n_init=10, max_iter=300)
         labels = model.fit_predict(X)
-        wcss.append(model.inertia_)
-        silhouettes.append(silhouette_score(X, labels))
+        score = silhouette_score(X, labels)
 
-    cluster_values = list(cluster_values)
+        results.append({
+            "K": k,
+            "WCSS": model.inertia_,
+            "Silhouette_Score": score})
 
-    plt.figure(figsize=(9, 6))
-    plt.plot(cluster_values, wcss, marker="o")
-    plt.title("Elbow Method for Optimal K")
-    plt.xlabel("Number of Clusters (K)")
-    plt.ylabel("WCSS / Inertia")
-    plt.xticks(cluster_values)
+        print(f"K={k} | WCSS={model.inertia_:.2f} | "f"Silhouette={score:.4f}")
+
+    evaluation = pd.DataFrame(results)
+    evaluation.to_csv(os.path.join(REPORT_DIR, "cluster_evaluation.csv"),index=False)
+
+    best_row = evaluation.loc[evaluation["Silhouette_Score"].idxmax()]
+    best_k = int(best_row["K"])
+
+    # Elbow plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(evaluation["K"], evaluation["WCSS"], marker="o")
+    plt.xlabel("Number of Clusters")
+    plt.ylabel("WCSS")
+    plt.title("Elbow Method")
     plt.tight_layout()
-    plt.savefig(ELBOW_PATH, dpi=150)
+    plt.savefig(os.path.join(FIGURE_DIR, "elbow_method.png"),dpi=150)
     plt.close()
 
-    plt.figure(figsize=(9, 6))
-    plt.plot(cluster_values, silhouettes, marker="o")
-    plt.title("Silhouette Score by Number of Clusters")
-    plt.xlabel("Number of Clusters (K)")
+    # Silhouette plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(evaluation["K"],evaluation["Silhouette_Score"],marker="o")
+    plt.xlabel("Number of Clusters")
     plt.ylabel("Silhouette Score")
-    plt.xticks(cluster_values)
+    plt.title("Silhouette Score by K")
     plt.tight_layout()
-    plt.savefig(SILHOUETTE_PATH, dpi=150)
+    plt.savefig(os.path.join(FIGURE_DIR, "silhouette_scores.png"),dpi=150)
     plt.close()
 
-    evaluation_df = pd.DataFrame({
-        "K": cluster_values,
-        "WCSS": wcss,
-        "Silhouette_Score": silhouettes
-    })
-    evaluation_df.to_csv(
-        os.path.join(REPORT_DIR, "cluster_evaluation.csv"),
-        index=False
-    )
+    return best_k, evaluation
 
-    best_index = int(np.argmax(silhouettes))
-    best_k = cluster_values[best_index]
-    best_score = silhouettes[best_index]
+def train_kmeans(X, k):
+    model = KMeans(n_clusters=k,random_state=42,n_init=10,max_iter=300)
 
-    print("\nCluster Evaluation:")
-    print(evaluation_df.to_string(index=False))
-    print(f"\nBest K based on Silhouette Score: {best_k}")
-    print(f"Best Silhouette Score: {best_score:.4f}")
-
-    return best_k, evaluation_df
-
-
-def train_kmeans(X, n_clusters):
-    print("\nTraining final K-Means model...")
-    kmeans = KMeans(
-        n_clusters=n_clusters,
-        random_state=42,
-        n_init=10,
-        max_iter=300
-    )
-    labels = kmeans.fit_predict(X)
+    labels = model.fit_predict(X)
     score = silhouette_score(X, labels)
 
-    print("Final Model Inertia:", round(kmeans.inertia_, 4))
-    print("Final Silhouette Score:", round(score, 4))
-    return kmeans, labels, score
+    print("Final K:", k)
+    print("Inertia:", round(model.inertia_, 4))
+    print("Silhouette Score:", round(score, 4))
 
+    return model, labels, score
 
-def add_cluster_labels(df, labels):
-    df = df.copy()
-    df["Cluster"] = labels
-    print("\nCluster Distribution:")
-    print(df["Cluster"].value_counts().sort_index())
-    return df
+def create_cluster_report(df):
+    report = df.groupby("Cluster").agg(
+        Book_Count=("Book Name", "count"),
+        Average_Rating=("Rating_Filled", "mean"),
+        Average_Reviews=("Number of Reviews", "mean"),
+        Total_Reviews=("Number of Reviews", "sum"),
+        Average_Price=("Price", "mean"),
+        Average_Weighted_Rating=("Weighted_Rating", "mean"),
+        Average_Popularity=("Popularity_Score", "mean"),
+        Average_Quality=("Quality_Score", "mean"),
+        Average_Listening_Hours=("Listening_Time_Hours", "mean")).reset_index()
 
+    report.to_csv(os.path.join(REPORT_DIR, "cluster_report.csv"),index=False)
+    return report
 
 def visualize_clusters(X, labels):
-    if X.shape[1] < 2:
-        print("Not enough dimensions for visualization.")
-        return
-
-    print("\nGenerating cluster visualization...")
     svd = TruncatedSVD(n_components=2, random_state=42)
     reduced = svd.fit_transform(X)
 
-    plt.figure(figsize=(10, 7))
+    plt.figure(figsize=(9, 6))
+
     for cluster in sorted(np.unique(labels)):
         mask = labels == cluster
-        plt.scatter(
-            reduced[mask, 0],
-            reduced[mask, 1],
-            label=f"Cluster {cluster}",
-            alpha=0.6,
-            s=25
-        )
+        plt.scatter(reduced[mask, 0],reduced[mask, 1],
+            label=f"Cluster {cluster}",alpha=0.6,s=25)
 
-    plt.title("Book Clusters using TF-IDF + K-Means")
     plt.xlabel("SVD Component 1")
     plt.ylabel("SVD Component 2")
+    plt.title("Book Clusters")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(CLUSTER_VISUALIZATION_PATH, dpi=150)
+    plt.savefig(os.path.join(FIGURE_DIR, "cluster_visualization.png"),dpi=150)
     plt.close()
 
-    print(
-        "2D SVD Explained Variance:",
-        round(svd.explained_variance_ratio_.sum(), 4)
-    )
+if __name__ == "__main__":
+    print("AUDIBLE INSIGHTS - CLUSTERING PIPELINE")
 
+    df = load_data()
+    tfidf_matrix = load_tfidf()
 
-def create_cluster_report(df):
-    print("\nCreating cluster profile...")
+    if len(df) != tfidf_matrix.shape[0]:
+        raise ValueError("Dataset and TF-IDF matrix rows do not match.")
 
-    report = (
-        df.groupby("Cluster")
-        .agg({
-            "Book Name": "count",
-            "Rating": "mean",
-            "Number of Reviews": "mean",
-            "Price": "mean"
-        })
-        .reset_index()
-        .rename(columns={
-            "Book Name": "Book_Count",
-            "Rating": "Average_Rating",
-            "Number of Reviews": "Average_Reviews",
-            "Price": "Average_Price"
-        })
-    )
+    X, svd = reduce_dimensions(tfidf_matrix)
 
-    report["Average_Rating"] = report["Average_Rating"].round(3)
-    report["Average_Reviews"] = report["Average_Reviews"].round(2)
-    report["Average_Price"] = report["Average_Price"].round(2)
+    best_k, evaluation = evaluate_clusters(X)
+    model, labels, score = train_kmeans(X, best_k)
 
-    report.to_csv(CLUSTER_INFO_PATH, index=False)
+    df["Cluster"] = labels
 
-    print("\nCluster Profile:")
-    print(report.to_string(index=False))
-    return report
+    create_cluster_report(df)
+    visualize_clusters(X, labels)
 
+    joblib.dump(model, KMEANS_PATH)
 
-def show_cluster_samples(df, samples_per_cluster=5):
-    print("\nSAMPLE BOOKS FROM EACH CLUSTER")
+    with open(CONFIG_PATH, "wb") as file:
+        pickle.dump({"n_clusters": best_k, "silhouette_score": score, "svd_components": X.shape[1]},file)
 
-    for cluster in sorted(df["Cluster"].unique()):
-        print(f"\nCluster {cluster}:")
-
-        subset = (
-            df[df["Cluster"] == cluster]
-            .sort_values("Weighted_Rating", ascending=False)
-            .head(samples_per_cluster)
-        )
-
-        columns = [
-            c for c in ["Book Name", "Author", "Rating"]
-            if c in subset.columns
-        ]
-        print(subset[columns].to_string(index=False))
-
-
-def save_outputs(kmeans, df):
-    joblib.dump(kmeans, KMEANS_PATH)
     df.to_csv(OUTPUT_PATH, index=False)
 
-    print("\nK-Means model saved to:", KMEANS_PATH)
-    print("Clustered dataset saved to:", OUTPUT_PATH)
+    print("Clustered dataset saved to:")
+    print(OUTPUT_PATH)
+    print("K-Means model saved to:")
+    print(KMEANS_PATH)
+    print("Clustering completed successfully.")
 
-
-if __name__ == "__main__":
-    df = load_data()
-    X = load_tfidf_matrix()
-
-    if len(df) != X.shape[0]:
-        raise ValueError(
-            "Dataset and TF-IDF matrix row counts do not match.\n"
-            f"Dataset rows: {len(df)}\n"
-            f"TF-IDF rows: {X.shape[0]}"
-        )
-
-    best_k, evaluation_df = evaluate_clusters(X, min_k=2, max_k=10)
-    kmeans, labels, final_score = train_kmeans(X, best_k)
-
-    df = add_cluster_labels(df, labels)
-    visualize_clusters(X, labels)
-    create_cluster_report(df)
-    show_cluster_samples(df, samples_per_cluster=5)
-    save_outputs(kmeans, df)
-
-    print("\nCLUSTERING COMPLETED SUCCESSFULLY")
-    print(f"Optimal K: {best_k}")
-    print(f"Silhouette Score: {final_score:.4f}")
-    print(f"Clustered Dataset: {OUTPUT_PATH}")
-    print(f"K-Means Model: {KMEANS_PATH}")
-    print(f"Cluster Report: {CLUSTER_INFO_PATH}")
